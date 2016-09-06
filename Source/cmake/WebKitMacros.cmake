@@ -43,7 +43,7 @@ macro(ADD_PRECOMPILED_HEADER _header _cpp _source)
     #FIXME: Add support for Xcode.
 endmacro()
 
-# Helper macro which wraps generate-bindings.pl script.
+# Helper macro which wraps preprocess-idls.pl and generate-bindings.pl scripts.
 #   OUTPUT_SOURCE is a list name which will contain generated sources.(eg. WebCore_SOURCES)
 #   INPUT_FILES are IDL files to generate.
 #   BASE_DIR is base directory where script is called.
@@ -54,16 +54,35 @@ endmacro()
 #   GENERATOR is a value of --generator argument.
 #   EXTENSION is of output files
 #   SUPPLEMENTAL_DEPFILE is a value of --supplementalDependencyFile. (optional)
+#   PP_EXTRA_OUTPUT is extra outputs of preprocess-idls.pl. (optional)
+#   PP_EXTRA_ARGS is extra arguments for preprocess-idls.pl. (optional)
 function(GENERATE_BINDINGS)
     set(options)
     set(oneValueArgs OUTPUT_SOURCE BASE_DIR FEATURES DESTINATION PREFIX GENERATOR EXTENSION SUPPLEMENTAL_DEPFILE)
-    set(multiValueArgs INPUT_FILES IDL_INCLUDES)
+    set(multiValueArgs INPUT_FILES IDL_INCLUDES PP_EXTRA_OUTPUT PP_EXTRA_ARGS)
     cmake_parse_arguments(arg "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
     set(binding_generator ${WEBCORE_DIR}/bindings/scripts/generate-bindings.pl)
     set(idl_attributes_file ${WEBCORE_DIR}/bindings/scripts/IDLAttributes.txt)
+    set(id ${arg_OUTPUT_SOURCE})
+    set(idl_files_list ${CMAKE_CURRENT_BINARY_DIR}/idl_files_${id}.tmp)
+
+    set(content)
+    foreach (f ${arg_INPUT_FILES})
+        if (NOT IS_ABSOLUTE ${f})
+            set(f ${CMAKE_CURRENT_SOURCE_DIR}/${f})
+        endif ()
+        set(content "${content}${f}\n")
+    endforeach ()
+    file(WRITE ${idl_files_list} ${content})
 
     if (arg_SUPPLEMENTAL_DEPFILE)
         set(_supplemental_dependency --supplementalDependencyFile ${arg_SUPPLEMENTAL_DEPFILE})
+
+        add_custom_command(
+            OUTPUT ${arg_SUPPLEMENTAL_DEPFILE} ${arg_PP_EXTRA_OUTPUT}
+            DEPENDS ${WEBCORE_DIR}/bindings/scripts/preprocess-idls.pl ${arg_INPUT_FILES}
+            COMMAND ${PERL_EXECUTABLE} -I${WEBCORE_DIR}/bindings/scripts ${WEBCORE_DIR}/bindings/scripts/preprocess-idls.pl --defines ${arg_FEATURES} --idlFilesList ${idl_files_list} --supplementalDependencyFile ${arg_SUPPLEMENTAL_DEPFILE} ${arg_PP_EXTRA_ARGS}
+            VERBATIM)
     endif ()
 
     set(idl_includes)
