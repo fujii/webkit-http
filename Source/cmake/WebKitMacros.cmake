@@ -54,7 +54,6 @@ endmacro()
 macro(GENERATE_BINDINGS _output_source _input_files _base_dir _idl_includes _features _destination _prefix _generator _extension _idl_attributes_file)
     set(_supplemental_dependency)
     set(_supplemental_dependency_file)
-    set(_additional_dependencies)
     set(BINDING_GENERATOR ${WEBCORE_DIR}/bindings/scripts/generate-bindings.pl)
     set(_args ${ARGN})
     list(LENGTH _args _argCount)
@@ -63,7 +62,6 @@ macro(GENERATE_BINDINGS _output_source _input_files _base_dir _idl_includes _fea
         if (_supplemental_dependency_file)
             set(_supplemental_dependency --supplementalDependencyFile ${_supplemental_dependency_file})
         endif ()
-        list(GET _args 1 _additional_dependencies)
     endif ()
 
     set(COMMON_GENERATOR_DEPENDENCIES
@@ -73,7 +71,6 @@ macro(GENERATE_BINDINGS _output_source _input_files _base_dir _idl_includes _fea
         ${_supplemental_dependency_file}
         ${_idl_attributes_file}
     )
-    list(APPEND COMMON_GENERATOR_DEPENDENCIES ${_additional_dependencies})
 
     if (EXISTS ${WEBCORE_DIR}/bindings/scripts/CodeGenerator${_generator}.pm)
         list(APPEND COMMON_GENERATOR_DEPENDENCIES ${WEBCORE_DIR}/bindings/scripts/CodeGenerator${_generator}.pm)
