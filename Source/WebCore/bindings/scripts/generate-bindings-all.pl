@@ -90,7 +90,7 @@ if ($supplementalDependencyFile) {
 my @args = ('--defines', $defines,
             '--generator', $generator,
             '--outputDir', $outputDirectory,
-            '--preprocessor', $preprocessor,
+            '--preprocessor', quoteCommand($preprocessor),
             '--idlAttributesFile', $idlAttributesFile);
 push @args, map { ('--include', $_) } @idlDirectories;
 push @args, '--supplementalDependencyFile', $supplementalDependencyFile if $supplementalDependencyFile;
@@ -150,4 +150,17 @@ sub worker {
             }
         }
     }
+}
+
+sub quoteCommand
+{
+    use Config;
+    if ($Config::Config{osname} eq 'MSWin32') {
+        return map {
+            s/\\/\\\\/g;
+            s/\"/\\\"/g;
+            "\"$_\"";
+        } @_;
+    }
+    return @_;
 }
