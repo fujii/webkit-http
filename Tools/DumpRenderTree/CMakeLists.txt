@@ -119,13 +119,16 @@ set(DumpRenderTree_IDL_FILES
     "${WEBKIT_TESTRUNNER_UISCRIPTCONTEXT_DIR}/Bindings/UIScriptController.idl"
 )
 
-GENERATE_BINDINGS(DumpRenderTree_SOURCES
-    "${DumpRenderTree_IDL_FILES}"
-    "${DUMP_RENDER_TREE_BINDINGS_DIR}"
-    "--include=${WEBKIT_TESTRUNNER_UISCRIPTCONTEXT_DIR}/Bindings"
-    "${FEATURE_DEFINES_WITH_SPACE_SEPARATOR}"
-    ${DERIVED_SOURCES_DIR}/DumpRenderTree JS DumpRenderTree cpp
-    ${WEBCORE_DIR}/bindings/scripts/IDLAttributes.txt)
+GENERATE_BINDINGS(DumpRenderTreeBindings
+    OUTPUT_SOURCE DumpRenderTree_SOURCES
+    INPUT_FILES ${DumpRenderTree_IDL_FILES}
+    BASE_DIR ${DUMP_RENDER_TREE_BINDINGS_DIR}
+    IDL_INCLUDES Bindings
+    FEATURES ${FEATURE_DEFINES_WITH_SPACE_SEPARATOR}
+    DESTINATION ${DERIVED_SOURCES_DIR}/DumpRenderTree
+    PREFIX JS
+    GENERATOR DumpRenderTree
+    EXTENSION cpp)
 
 WEBKIT_INCLUDE_CONFIG_FILES_IF_EXISTS()
 
@@ -133,6 +136,7 @@ include_directories(${DumpRenderTree_INCLUDE_DIRECTORIES})
 
 add_executable(DumpRenderTree ${DumpRenderTree_SOURCES})
 target_link_libraries(DumpRenderTree ${DumpRenderTree_LIBRARIES})
+add_dependencies(DumpRenderTree DumpRenderTreeBindings)
 
 if (ENABLE_NETSCAPE_PLUGIN_API)
     add_library(TestNetscapePlugin SHARED ${TestNetscapePlugin_SOURCES})
