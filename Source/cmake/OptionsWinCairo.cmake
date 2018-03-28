@@ -2,10 +2,8 @@ set(WTF_PLATFORM_WIN_CAIRO 1)
 
 include(OptionsWin)
 
-if (ENABLE_WIN_CAIRO_WEBKIT)
-    set(ENABLE_WEBKIT ON)
-    add_definitions(-DBUILDING_WIN_CAIRO_WEBKIT=1)
-endif ()
+set(ENABLE_WEBKIT ON)
+add_definitions(-DBUILDING_WIN_CAIRO_WEBKIT=1)
 
 find_package(Cairo 1.14.10 REQUIRED)
 find_package(CURL 7.56.1 REQUIRED)
