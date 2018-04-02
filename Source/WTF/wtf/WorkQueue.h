@@ -100,9 +100,6 @@ private:
     bool tryRegisterAsWorkThread();
     void unregisterAsWorkThread();
     void performWorkOnRegisteredWorkThread();
-
-    static void unregisterWaitAndDestroyItemSoon(Ref<WorkItemContext>&&);
-    static DWORD WINAPI unregisterWaitAndDestroyItemCallback(void* context);
 #endif
 
 #if USE(COCOA_EVENT_LOOP)

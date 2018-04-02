@@ -45,7 +45,7 @@ public:
     virtual ~WorkItemContext();
 
     Win32Handle& handle() { return m_handle; }
-    Win32Handle& waitHandle() { return m_waitHandle; }
+    HANDLE& waitHandle() { return m_waitHandle; }
     Function<void()>& function() { return m_function; }
     WorkQueue* queue() const { return m_queue.get(); }
 
@@ -53,7 +53,7 @@ private:
     WorkItemContext(HANDLE, HANDLE, Function<void()>&&, WorkQueue*);
 
     Win32Handle m_handle;
-    Win32Handle m_waitHandle;
+    HANDLE m_waitHandle;
     Function<void()> m_function;
     RefPtr<WorkQueue> m_queue;
 };
