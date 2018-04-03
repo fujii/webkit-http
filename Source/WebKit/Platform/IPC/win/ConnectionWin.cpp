@@ -203,6 +203,8 @@ void Connection::readEventHandler()
             // to the top of the loop to use ::GetOverlappedResult to retrieve the available data.
             continue;
         }
+        if (error == ERROR_BROKEN_PIPE)
+            return;
 
         // FIXME: We need to handle other errors here.
         ASSERT_NOT_REACHED();
