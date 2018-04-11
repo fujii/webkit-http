@@ -224,6 +224,9 @@ set(WebCore_FORWARDING_HEADERS_DIRECTORIES
 
 if (ENABLE_WEBKIT)
     list(APPEND WebCore_FORWARDING_HEADERS_DIRECTORIES
+        crypto
+        replay
+
         Modules/applicationmanifest
 
         dom/messageports

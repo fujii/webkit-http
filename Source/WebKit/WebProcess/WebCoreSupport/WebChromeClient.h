@@ -278,6 +278,12 @@ private:
     WebCore::FloatSize overrideScreenSize() const final;
 #endif
 
+#if PLATFORM(WIN)
+    void setLastSetCursorToCurrentCursor() final { }
+    void AXStartFrameLoad() final { }
+    void AXFinishFrameLoad() final { }
+#endif
+
     void dispatchViewportPropertiesDidChange(const WebCore::ViewportArguments&) const final;
 
     void notifyScrollerThumbIsVisibleInRect(const WebCore::IntRect&) final;
