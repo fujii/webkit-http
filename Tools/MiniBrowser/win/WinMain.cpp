@@ -25,27 +25,28 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
-
-#pragma warning(disable: 4091)
-
 #include "stdafx.h"
+
+#include "BrowserWindow.h"
 #include "MiniBrowserLibResource.h"
-#include "MiniBrowserWebHost.h"
-#include "Common.cpp"
+#include <WebKitLegacy/WebKit.h>
 
-namespace WebCore {
-float deviceScaleFactorForWindow(HWND);
-}
+#if USE(CF)
+#include <CoreFoundation/CFRunLoop.h>
+#endif
 
+extern BrowserWindow* gBrowserWindow;
+
+void computeFullDesktopFrame();
+void createCrashReport(EXCEPTION_POINTERS*);
+void parseCommandLine(bool& usesLayeredWebView, bool& useFullDesktop, bool& pageLoadTesting, _bstr_t& requestedURL, bool& useWK2);
+    
 int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _In_ LPWSTR lpstrCmdLine, _In_ int nCmdShow)
 {
 #ifdef _CRTDBG_MAP_ALLOC
     _CrtSetReportFile(_CRT_WARN, _CRTDBG_FILE_STDERR);
     _CrtSetReportMode(_CRT_WARN, _CRTDBG_MODE_FILE);
 #endif
-
-    MSG msg = {0};
-    HACCEL hAccelTable;
 
     INITCOMMONCONTROLSEX InitCtrlEx;
 
@@ -56,14 +57,10 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
     bool usesLayeredWebView = false;
     bool useFullDesktop = false;
     bool pageLoadTesting = false;
+    bool useWK2 = false;
     _bstr_t requestedURL;
 
-    parseCommandLine(usesLayeredWebView, useFullDesktop, pageLoadTesting, requestedURL);
-
-    // Initialize global strings
-    LoadString(hInst, IDS_APP_TITLE, szTitle, MAX_LOADSTRING);
-    LoadString(hInst, IDC_MINIBROWSER, szWindowClass, MAX_LOADSTRING);
-    MyRegisterClass(hInst);
+    parseCommandLine(usesLayeredWebView, useFullDesktop, pageLoadTesting, requestedURL, useWK2);
 
     if (useFullDesktop)
         computeFullDesktopFrame();
@@ -73,152 +70,40 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 
     ::SetProcessDPIAware();
 
-    float scaleFactor = WebCore::deviceScaleFactorForWindow(nullptr);
+    HACCEL hAccelTable = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDC_MINIBROWSER));
 
-    if (usesLayeredWebView) {
-        hURLBarWnd = CreateWindow(L"EDIT", L"Type URL Here",
-            WS_OVERLAPPEDWINDOW | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOVSCROLL, 
-            scaleFactor * s_windowPosition.x, scaleFactor * (s_windowPosition.y + s_windowSize.cy), scaleFactor * s_windowSize.cx, scaleFactor * URLBAR_HEIGHT,
-            0, 0, hInst, 0);
-    } else {
-        hMainWnd = CreateWindow(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW,
-            CW_USEDEFAULT, 0, CW_USEDEFAULT, 0, 0, 0, hInst, 0);
-
-        if (!hMainWnd)
-            return FALSE;
-
-        hBackButtonWnd = CreateWindow(L"BUTTON", L"<", WS_CHILD | WS_VISIBLE  | BS_TEXT, 0, 0, 0, 0, hMainWnd, 0, hInst, 0);
-        hForwardButtonWnd = CreateWindow(L"BUTTON", L">", WS_CHILD | WS_VISIBLE | BS_TEXT, scaleFactor * CONTROLBUTTON_WIDTH, 0, 0, 0, hMainWnd, 0, hInst, 0);
-        hURLBarWnd = CreateWindow(L"EDIT", 0, WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOVSCROLL, scaleFactor * CONTROLBUTTON_WIDTH * 2, 0, 0, 0, hMainWnd, 0, hInst, 0);
-
-        ShowWindow(hMainWnd, nCmdShow);
-        UpdateWindow(hMainWnd);
-    }
-
-    DefEditProc = reinterpret_cast<WNDPROC>(GetWindowLongPtr(hURLBarWnd, GWLP_WNDPROC));
-    DefButtonProc = reinterpret_cast<WNDPROC>(GetWindowLongPtr(hBackButtonWnd, GWLP_WNDPROC));
-    SetWindowLongPtr(hURLBarWnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(EditProc));
-    SetWindowLongPtr(hBackButtonWnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(BackButtonProc));
-    SetWindowLongPtr(hForwardButtonWnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(ForwardButtonProc));
-
-    SetFocus(hURLBarWnd);
-
-    RECT clientRect;
-    ::GetClientRect(hMainWnd, &clientRect);
-
-    if (usesLayeredWebView)
-        clientRect = { s_windowPosition.x, s_windowPosition.y, s_windowPosition.x + s_windowSize.cx, s_windowPosition.y + s_windowSize.cy };
-
-    MiniBrowserWebHost* webHost = nullptr;
-
-    IWebDownloadDelegatePtr downloadDelegate;
-    downloadDelegate.Attach(new WebDownloadDelegate());
-
-    gMiniBrowser = new MiniBrowser(hMainWnd, hURLBarWnd, usesLayeredWebView, pageLoadTesting);
-    if (!gMiniBrowser)
-        goto exit;
-
-    if (!gMiniBrowser->seedInitialDefaultPreferences())
-        goto exit;
-
-    if (!gMiniBrowser->setToDefaultPreferences())
-        goto exit;
-
-    HRESULT hr = gMiniBrowser->init();
-    if (FAILED(hr))
-        goto exit;
-
-    if (!setCacheFolder())
-        goto exit;
-
-    webHost = new MiniBrowserWebHost(gMiniBrowser, hURLBarWnd);
-
-    hr = gMiniBrowser->setFrameLoadDelegate(webHost);
-    if (FAILED(hr))
-        goto exit;
-
-    hr = gMiniBrowser->setFrameLoadDelegatePrivate(webHost);
-    if (FAILED(hr))
-        goto exit;
-
-    hr = gMiniBrowser->setUIDelegate(new PrintWebUIDelegate());
-    if (FAILED (hr))
-        goto exit;
-
-    hr = gMiniBrowser->setAccessibilityDelegate(new AccessibilityDelegate());
-    if (FAILED (hr))
-        goto exit;
-
-    hr = gMiniBrowser->setResourceLoadDelegate(new ResourceLoadDelegate(gMiniBrowser));
-    if (FAILED(hr))
-        goto exit;
-
-    hr = gMiniBrowser->setDownloadDelegate(downloadDelegate);
-    if (FAILED(hr))
-        goto exit;
-
-    hr = gMiniBrowser->prepareViews(hMainWnd, clientRect, requestedURL.GetBSTR(), gViewWindow);
-    if (FAILED(hr) || !gViewWindow)
-        goto exit;
-
-    if (gMiniBrowser->usesLayeredWebView())
-        subclassForLayeredWindow();
-
-    resizeSubViews();
-
-    ShowWindow(gViewWindow, nCmdShow);
-    UpdateWindow(gViewWindow);
-
-    hAccelTable = LoadAccelerators(hInst, MAKEINTRESOURCE(IDC_MINIBROWSER));
-
-    if (requestedURL.length())
-        loadURL(requestedURL.GetBSTR());
+    gBrowserWindow = new BrowserWindow(nCmdShow, usesLayeredWebView, pageLoadTesting, requestedURL, useWK2);
 
 #pragma warning(disable:4509)
 
     // Main message loop:
+    MSG msg = { };
     __try {
-        _com_ptr_t<_com_IIID<IWebKitMessageLoop, &__uuidof(IWebKitMessageLoop)>> messageLoop;
-
-        hr = WebKitCreateInstance(CLSID_WebKitMessageLoop, 0, IID_IWebKitMessageLoop, reinterpret_cast<void**>(&messageLoop.GetInterfacePtr()));
-        if (FAILED(hr))
-            goto exit;
-
-        messageLoop->run(hAccelTable);
-
+        while (GetMessage(&msg, 0, 0, 0)) {
+#if USE(CF)
+            CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0, true);
+#endif
+            if (!TranslateAccelerator(msg.hwnd, hAccelTable, &msg)) {
+                TranslateMessage(&msg);
+                DispatchMessage(&msg);
+            }
+        }
     } __except(createCrashReport(GetExceptionInformation()), EXCEPTION_EXECUTE_HANDLER) { }
 
-exit:
     shutDownWebKit();
 #ifdef _CRTDBG_MAP_ALLOC
     _CrtDumpMemoryLeaks();
 #endif
 
+    delete gBrowserWindow;
+
     // Shut down COM.
     OleUninitialize();
 
-    delete gMiniBrowser;
-    
     return static_cast<int>(msg.wParam);
 }
 
-ATOM MyRegisterClass(HINSTANCE hInstance)
+extern "C" __declspec(dllexport) int WINAPI dllLauncherEntryPoint(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpstrCmdLine, int nCmdShow)
 {
-    WNDCLASSEX wcex;
-
-    wcex.cbSize = sizeof(WNDCLASSEX);
-
-    wcex.style          = CS_HREDRAW | CS_VREDRAW;
-    wcex.lpfnWndProc    = WndProc;
-    wcex.cbClsExtra     = 0;
-    wcex.cbWndExtra     = 0;
-    wcex.hInstance      = hInstance;
-    wcex.hIcon          = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_MINIBROWSER));
-    wcex.hCursor        = LoadCursor(0, IDC_ARROW);
-    wcex.hbrBackground  = 0;
-    wcex.lpszMenuName   = MAKEINTRESOURCE(IDC_MINIBROWSER);
-    wcex.lpszClassName  = szWindowClass;
-    wcex.hIconSm        = LoadIcon(wcex.hInstance, MAKEINTRESOURCE(IDI_SMALL));
-
-    return RegisterClassEx(&wcex);
+    return wWinMain(hInstance, hPrevInstance, lpstrCmdLine, nCmdShow);
 }

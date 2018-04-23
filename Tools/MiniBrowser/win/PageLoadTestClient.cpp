@@ -132,7 +132,7 @@ void PageLoadTestClient::pageLoadEndedAtTime(CFAbsoluteTime endTime)
     if (m_pageLoadTesting) {
         ++m_currentRepetition;
         if (m_currentRepetition != m_repetitions)
-            m_host->loadURL(m_url);
+            m_host->loadURL(static_cast<wchar_t*>(m_url));
         else {
             dumpRunStatistics();
             m_host->exitProgram();

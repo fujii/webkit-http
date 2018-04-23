@@ -1,3 +1,148 @@
+2018-04-22  Fujii Hironori  <Hironori.Fujii@sony.com>
+
+        [Win] MiniBrowser should support both WebKitLegacy and modern WebKit
+        https://bugs.webkit.org/show_bug.cgi?id=184770
+
+        Reviewed by NOBODY (OOPS!).
+
+        Added an abstract class ContentWindow to switch WebKitLegacy and
+        modern WebKit WebView.
+
+        Added a class BrowserWindow to manage the main window.
+
+        Existing MiniBrowser class implements ContentWindow interface by
+        using WebKitLegacy WebView. A new class WK2ContentWindow
+        implements it by using modern WebKit WebView.
+
+        Added --wk2 option to use the modern WebKit.
+
+        This change simplified the layered window implementation. The main
+        window is created even for the layered window mode to control the
+        layered window. Replacing WndProc was changed to another WndProc
+        instead of sharing WndProc with the main window.
+
+        * MiniBrowser/win/BrowserWindow.cpp: Added.
+        (MyRegisterClass):
+        (BrowserWindow::BrowserWindow):
+        (BrowserWindow::updateDeviceScaleFactor):
+        (BrowserWindow::resizeSubViews):
+        (authDialogProc):
+        (BrowserWindow::displayAuthDialog):
+        * MiniBrowser/win/BrowserWindow.h: Added.
+        (BrowserWindow::urlBarFont):
+        (BrowserWindow::contentWindow):
+        * MiniBrowser/win/CMakeLists.txt:
+        * MiniBrowser/win/Common.cpp:
+        (getAppDataFolder):
+        (processCrashReport):
+        (setUserAgent):
+        (ToggleMenuItem):
+        (BrowserWindow::WndProc):
+        (Caches):
+        (CustomUserAgent):
+        (loadURL):
+        (parseCommandLine):
+        (subclassForLayeredWindow): Deleted.
+        (computeFullDesktopFrame): Deleted.
+        (setCacheFolder): Deleted.
+        (AbortProc): Deleted.
+        (getPrinterDC): Deleted.
+        (initDocStruct): Deleted.
+        (PrintView): Deleted.
+        (WndProc): Deleted.
+        (DisplayAuthDialog): Deleted.
+        (AuthDialogProc): Deleted.
+        (setWindowText): Deleted.
+        (updateStatistics): Deleted.
+        (dllLauncherEntryPoint): Deleted.
+        * MiniBrowser/win/ContentWindow.h: Added.
+        (ContentWindow::~ContentWindow):
+        * MiniBrowser/win/MiniBrowser.cpp:
+        (MiniBrowser::setCacheFolder):
+        (MiniBrowser::MiniBrowser):
+        (MiniBrowser::init):
+        (MiniBrowser::prepareViews):
+        (MiniBrowser::loadHTMLString):
+        (MiniBrowser::navigateForwardOrBackward):
+        (MiniBrowser::navigateToHistory):
+        (MiniBrowser::loadURL):
+        (MiniBrowser::setUserAgent):
+        (MiniBrowser::userAgent):
+        (setWindowText):
+        (MiniBrowser::updateStatistics):
+        (AbortProc):
+        (getPrinterDC):
+        (initDocStruct):
+        (MiniBrowser::print):
+        (MiniBrowser::setAVFoundationEnabled):
+        (MiniBrowser::setAcceleratedCompositingEnabled):
+        (MiniBrowser::setAuthorAndUserStylesEnabled):
+        (MiniBrowser::setFullScreenEnabled):
+        (MiniBrowser::setJavaScriptEnabled):
+        (MiniBrowser::setLoadsImagesAutomatically):
+        (MiniBrowser::setLocalFileRestrictionsEnabled):
+        (MiniBrowser::setShouldInvertColors):
+        (MiniBrowser::setShowCompositingBorders):
+        (MiniBrowser::setShowTiledScrollingIndicator):
+        (viewWndProc):
+        (MiniBrowser::subclassForLayeredWindow):
+        (MiniBrowser::generateFontForScaleFactor): Deleted.
+        (MiniBrowser::updateDeviceScaleFactor): Deleted.
+        * MiniBrowser/win/MiniBrowser.h:
+        (MiniBrowser::hasWebView const): Deleted.
+        (MiniBrowser::deviceScaleFactor): Deleted.
+        (MiniBrowser::urlBarFont): Deleted.
+        * MiniBrowser/win/MiniBrowserReplace.h:
+        (processCrashReport): Deleted.
+        * MiniBrowser/win/PageLoadTestClient.cpp:
+        (PageLoadTestClient::pageLoadEndedAtTime):
+        * MiniBrowser/win/ResourceLoadDelegate.cpp:
+        (ResourceLoadDelegate::didReceiveAuthenticationChallenge):
+        * MiniBrowser/win/WK2ContentWindow.cpp: Added.
+        (createString):
+        (toUtf8):
+        (fromUtf8):
+        (createWKString):
+        (createWKURL):
+        (WK2ContentWindow::WK2ContentWindow):
+        (WK2ContentWindow::loadURL):
+        (WK2ContentWindow::loadHTMLString):
+        (WK2ContentWindow::print):
+        (WK2ContentWindow::launchInspector):
+        (WK2ContentWindow::navigateForwardOrBackward):
+        (WK2ContentWindow::navigateToHistory):
+        (WK2ContentWindow::setAVFoundationEnabled):
+        (WK2ContentWindow::setAcceleratedCompositingEnabled):
+        (WK2ContentWindow::setAuthorAndUserStylesEnabled):
+        (WK2ContentWindow::setFullScreenEnabled):
+        (WK2ContentWindow::setJavaScriptEnabled):
+        (WK2ContentWindow::setLoadsImagesAutomatically):
+        (WK2ContentWindow::setLocalFileRestrictionsEnabled):
+        (WK2ContentWindow::setShouldInvertColors):
+        (WK2ContentWindow::setShowCompositingBorders):
+        (WK2ContentWindow::setShowTiledScrollingIndicator):
+        (WK2ContentWindow::goBack):
+        (WK2ContentWindow::goForward):
+        (WK2ContentWindow::setUserAgent):
+        (WK2ContentWindow::userAgent):
+        (WK2ContentWindow::resetZoom):
+        (WK2ContentWindow::zoomIn):
+        (WK2ContentWindow::zoomOut):
+        (WK2ContentWindow::showLayerTree):
+        (WK2ContentWindow::updateStatistics):
+        (WK2ContentWindow::hwnd):
+        (toContentWindow):
+        (WK2ContentWindow::didReceiveTitleForFrame):
+        (WK2ContentWindow::didFailProvisionalLoadWithErrorForFrame):
+        (WK2ContentWindow::didCommitLoadForFrame):
+        (WK2ContentWindow::didChangeProgress):
+        (WK2ContentWindow::didSameDocumentNavigationForFrame):
+        * MiniBrowser/win/WK2ContentWindow.h: Added.
+        * MiniBrowser/win/WinMain.cpp:
+        (wWinMain):
+        (dllLauncherEntryPoint):
+        (MyRegisterClass): Deleted.
+
 2018-04-24  Saam Barati  <sbarati@apple.com>
 
         Keep around a pre-warmed process when doing process swap on navigation

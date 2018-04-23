@@ -29,6 +29,4 @@
 
 static const wchar_t* defaultHTML = L"<p style=\"background-color: #00FF00\">Testing</p><img id=\"webkit logo\" src=\"http://webkit.org/images/icon-gold.png\" alt=\"Face\"><div style=\"border: solid blue; background: white;\" contenteditable=\"true\">div with blue border</div><ul><li>foo<li>bar<li>baz</ul>";
 
-static void processCrashReport(const wchar_t* fileName) { ::MessageBox(0, fileName, L"Crash Report", MB_OK); }
-
 #endif

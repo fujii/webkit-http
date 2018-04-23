@@ -7,6 +7,8 @@ set(MiniBrowser_INCLUDE_DIRECTORIES
 
 set(MiniBrowser_SOURCES
     AccessibilityDelegate.cpp
+    BrowserWindow.cpp
+    Common.cpp
     DOMDefaultImpl.cpp
     PageLoadTestClient.cpp
     PrintWebUIDelegate.cpp
@@ -34,6 +36,14 @@ if (USE_CF)
     list(APPEND MiniBrowser_LIBRARIES
         ${COREFOUNDATION_LIBRARY}
     )
+endif ()
+
+if (ENABLE_WEBKIT)
+    add_definitions(-DENABLE_WEBKIT)
+    list(APPEND MiniBrowser_SOURCES
+        WK2ContentWindow.cpp
+    )
+    list(APPEND MiniBrowser_LIBRARIES WebKit)
 endif ()
 
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${MSVC_RUNTIME_LINKER_FLAGS}")

@@ -23,6 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
+#include "ContentWindow.h"
 #include "PageLoadTestClient.h"
 #include <WebKitLegacy/WebKit.h>
 #include <comip.h>
@@ -45,19 +46,21 @@ typedef _com_ptr_t<_com_IIID<IWebCache, &__uuidof(IWebCache)>> IWebCachePtr;
 typedef _com_ptr_t<_com_IIID<IWebResourceLoadDelegate, &__uuidof(IWebResourceLoadDelegate)>> IWebResourceLoadDelegatePtr;
 typedef _com_ptr_t<_com_IIID<IWebDownloadDelegate, &__uuidof(IWebDownloadDelegate)>> IWebDownloadDelegatePtr;
 
-class MiniBrowser {
+class MiniBrowser : public ContentWindow {
 public:
     MiniBrowser(HWND mainWnd, HWND urlBarWnd, bool useLayeredWebView = false, bool pageLoadTesting = false);
 
     HRESULT init();
-    HRESULT prepareViews(HWND mainWnd, const RECT& clientRect, const BSTR& requestedURL, HWND& viewWnd);
+    HRESULT prepareViews(HWND mainWnd, const RECT& clientRect, HWND& viewWnd);
 
-    HRESULT loadURL(const BSTR& passedURL);
-
+    bool loadURL(const std::wstring& url);
+    bool loadHTMLString(const std::wstring&);
+    void print();
+    
     void showLastVisitedSites(IWebView&);
     void launchInspector();
-    void navigateForwardOrBackward(HWND hWnd, UINT menuID);
-    void navigateToHistory(HWND hWnd, UINT menuID);
+    void navigateForwardOrBackward(bool isBackward);
+    void navigateToHistory(unsigned historyEntry);
     void exitProgram();
     bool seedInitialDefaultPreferences();
     bool setToDefaultPreferences();
@@ -71,19 +74,18 @@ public:
 
     IWebPreferencesPtr standardPreferences() { return m_standardPreferences;  }
     IWebPreferencesPrivatePtr privatePreferences() { return m_prefsPrivate; }
+
     IWebFramePtr mainFrame();
     IWebCoreStatisticsPtr statistics() { return m_statistics; }
     IWebCachePtr webCache() { return m_webCache;  }
     IWebViewPtr webView() { return m_webView; }
 
-    bool hasWebView() const { return !!m_webView; }
     bool usesLayeredWebView() const { return m_useLayeredWebView; }
     bool goBack();
     bool goForward();
 
-    void setUserAgent(UINT menuID);
-    void setUserAgent(_bstr_t& customUAString);
-    _bstr_t userAgent();
+    void setUserAgent(const std::wstring& customUAString);
+    std::wstring userAgent();
 
     PageLoadTestClient& pageLoadTestClient() { return *m_pageLoadTestClient; }
 
@@ -92,14 +94,24 @@ public:
     void zoomOut();
 
     void showLayerTree();
-
-    float deviceScaleFactor() { return m_deviceScaleFactor; }
-    void updateDeviceScaleFactor();
-
-    HGDIOBJ urlBarFont() { return m_hURLBarFont; }
+    void updateStatistics(HWND hDlg);
 
 private:
-    void generateFontForScaleFactor(float);
+    void setAVFoundationEnabled(bool);
+    void setAcceleratedCompositingEnabled(bool);
+    void setAuthorAndUserStylesEnabled(bool);
+    void setFullScreenEnabled(bool);
+    void setJavaScriptEnabled(bool);
+    void setLoadsImagesAutomatically(bool);
+    void setLocalFileRestrictionsEnabled(bool);
+    void setShouldInvertColors(bool);
+    void setShowCompositingBorders(bool);
+    void setShowTiledScrollingIndicator(bool);
+
+    bool setCacheFolder();
+    void subclassForLayeredWindow();
+
+    HWND hwnd() override { return m_viewWnd; }
 
     std::vector<IWebHistoryItemPtr> m_historyItems;
 
@@ -124,8 +136,6 @@ private:
 
     HWND m_hMainWnd { nullptr };
     HWND m_hURLBarWnd { nullptr };
-    HGDIOBJ m_hURLBarFont { nullptr };
-
-    float m_deviceScaleFactor { 1.0f };
+    HWND m_viewWnd { nullptr };
     bool m_useLayeredWebView;
 };

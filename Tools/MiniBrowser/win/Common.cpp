@@ -26,24 +26,13 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#include "AccessibilityDelegate.h"
+#include "stdafx.h"
+
+#include "BrowserWindow.h"
 #include "DOMDefaultImpl.h"
-#include "PrintWebUIDelegate.h"
-#include "ResourceLoadDelegate.h"
-#include "WebDownloadDelegate.h"
 #include "MiniBrowser.h"
-#include "MiniBrowserReplace.h"
+#include "MiniBrowserLibResource.h"
 #include <WebKitLegacy/WebKitCOMAPI.h>
-#include <wtf/ExportMacros.h>
-#include <wtf/Platform.h>
-#include <wtf/text/CString.h>
-#include <wtf/text/WTFString.h>
-
-#if USE(CF)
-#include <CoreFoundation/CFRunLoop.h>
-#include <WebKitLegacy/CFDictionaryPropertyBag.h>
-#endif
-
 #include <cassert>
 #include <comip.h>
 #include <commctrl.h>
@@ -58,10 +47,15 @@
 #include <string>
 #include <vector>
 #include <wininet.h>
+#include <wtf/ExportMacros.h>
+#include <wtf/Platform.h>
+#include <wtf/text/CString.h>
+#include <wtf/text/WTFString.h>
 
-#define MAX_LOADSTRING 100
-#define URLBAR_HEIGHT  24
-#define CONTROLBUTTON_WIDTH 24
+#if USE(CF)
+#include <CoreFoundation/CFRunLoop.h>
+#endif
+
 
 static const int maxHistorySize = 10;
 
@@ -74,27 +68,17 @@ typedef _com_ptr_t<_com_IIID<IWebMutableURLRequest, &__uuidof(IWebMutableURLRequ
 
 // Global Variables:
 HINSTANCE hInst;
-HWND hMainWnd;
-HWND hURLBarWnd;
-HGDIOBJ hURLFont;
-HWND hBackButtonWnd;
-HWND hForwardButtonWnd;
 HWND hCacheWnd;
 WNDPROC DefEditProc = nullptr;
 WNDPROC DefButtonProc = nullptr;
-WNDPROC DefWebKitProc = nullptr;
-HWND gViewWindow = 0;
-MiniBrowser* gMiniBrowser = nullptr;
-TCHAR szTitle[MAX_LOADSTRING]; // The title bar text
-TCHAR szWindowClass[MAX_LOADSTRING]; // the main window class name
+BrowserWindow* gBrowserWindow = nullptr;
+ContentWindow* gMiniBrowser = nullptr;
 
 // Support moving the transparent window
 POINT s_windowPosition = { 100, 100 };
 SIZE s_windowSize = { 500, 200 };
 
 // Forward declarations of functions included in this code module:
-ATOM MyRegisterClass(HINSTANCE hInstance);
-LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
 INT_PTR CALLBACK About(HWND, UINT, WPARAM, LPARAM);
 INT_PTR CALLBACK CustomUserAgent(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK EditProc(HWND, UINT, WPARAM, LPARAM);
@@ -102,49 +86,14 @@ LRESULT CALLBACK BackButtonProc(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK ForwardButtonProc(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK ReloadButtonProc(HWND, UINT, WPARAM, LPARAM);
 INT_PTR CALLBACK Caches(HWND, UINT, WPARAM, LPARAM);
-INT_PTR CALLBACK AuthDialogProc(HWND, UINT, WPARAM, LPARAM);
 
-static void loadURL(BSTR urlBStr);
-static void updateStatistics(HWND hDlg);
+void loadURL(BSTR urlBStr);
 
 namespace WebCore {
 float deviceScaleFactorForWindow(HWND);
 }
 
-static void resizeSubViews()
-{
-    if (gMiniBrowser->usesLayeredWebView() || !gViewWindow)
-        return;
-
-    float scaleFactor = WebCore::deviceScaleFactorForWindow(gViewWindow);
-
-    RECT rcClient;
-    GetClientRect(hMainWnd, &rcClient);
-
-    int height = scaleFactor * URLBAR_HEIGHT;
-    int width = scaleFactor * CONTROLBUTTON_WIDTH;
-
-    MoveWindow(hBackButtonWnd, 0, 0, width, height, TRUE);
-    MoveWindow(hForwardButtonWnd, width, 0, width, height, TRUE);
-    MoveWindow(hURLBarWnd, width * 2, 0, rcClient.right, height, TRUE);
-    MoveWindow(gViewWindow, 0, height, rcClient.right, rcClient.bottom - height, TRUE);
-
-    ::SendMessage(hURLBarWnd, static_cast<UINT>(WM_SETFONT), reinterpret_cast<WPARAM>(gMiniBrowser->urlBarFont()), TRUE);
-}
-
-static void subclassForLayeredWindow()
-{
-    hMainWnd = gViewWindow;
-#if defined _M_AMD64 || defined _WIN64
-    DefWebKitProc = reinterpret_cast<WNDPROC>(::GetWindowLongPtr(hMainWnd, GWLP_WNDPROC));
-    ::SetWindowLongPtr(hMainWnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(WndProc));
-#else
-    DefWebKitProc = reinterpret_cast<WNDPROC>(::GetWindowLong(hMainWnd, GWL_WNDPROC));
-    ::SetWindowLong(hMainWnd, GWL_WNDPROC, reinterpret_cast<LONG_PTR>(WndProc));
-#endif
-}
-
-static void computeFullDesktopFrame()
+void computeFullDesktopFrame()
 {
     RECT desktop;
     if (!::SystemParametersInfo(SPI_GETWORKAREA, 0, static_cast<void*>(&desktop), 0))
@@ -166,7 +115,7 @@ BOOL WINAPI DllMain(HINSTANCE dllInstance, DWORD reason, LPVOID)
     return TRUE;
 }
 
-static bool getAppDataFolder(_bstr_t& directory)
+bool getAppDataFolder(_bstr_t& directory)
 {
     wchar_t appDataDirectory[MAX_PATH];
     if (FAILED(SHGetFolderPathW(0, CSIDL_LOCAL_APPDATA | CSIDL_FLAG_CREATE, 0, 0, appDataDirectory)))
@@ -183,21 +132,7 @@ static bool getAppDataFolder(_bstr_t& directory)
     return true;
 }
 
-static bool setCacheFolder()
-{
-    IWebCachePtr webCache = gMiniBrowser->webCache();
-    if (!webCache)
-        return false;
-
-    _bstr_t appDataFolder;
-    if (!getAppDataFolder(appDataFolder))
-        return false;
-
-    appDataFolder += L"\\cache";
-    webCache->setCacheFolder(appDataFolder);
-
-    return true;
-}
+static void processCrashReport(const wchar_t* fileName) { ::MessageBox(0, fileName, L"Crash Report", MB_OK); }
 
 void createCrashReport(EXCEPTION_POINTERS* exceptionPointers)
 {
@@ -231,82 +166,6 @@ void createCrashReport(EXCEPTION_POINTERS* exceptionPointers)
         ::CloseHandle(miniDumpFile);
         processCrashReport(fileName.c_str());
     }
-}
-
-static BOOL CALLBACK AbortProc(HDC hDC, int Error)
-{
-    MSG msg;
-    while (::PeekMessage(&msg, 0, 0, 0, PM_REMOVE)) {
-        ::TranslateMessage(&msg);
-        ::DispatchMessage(&msg);
-    }
-
-    return TRUE;
-}
-
-static HDC getPrinterDC()
-{
-    PRINTDLG pdlg;
-    memset(&pdlg, 0, sizeof(PRINTDLG));
-    pdlg.lStructSize = sizeof(PRINTDLG);
-    pdlg.Flags = PD_PRINTSETUP | PD_RETURNDC;
-
-    ::PrintDlg(&pdlg);
-
-    return pdlg.hDC;
-}
-
-static void initDocStruct(DOCINFO* di, TCHAR* docname)
-{
-    memset(di, 0, sizeof(DOCINFO));
-    di->cbSize = sizeof(DOCINFO);
-    di->lpszDocName = docname;
-}
-
-typedef _com_ptr_t<_com_IIID<IWebFramePrivate, &__uuidof(IWebFramePrivate)>> IWebFramePrivatePtr;
-
-void PrintView(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
-{
-    HDC printDC = getPrinterDC();
-    if (!printDC) {
-        ::MessageBoxW(0, L"Error creating printing DC", L"Error", MB_APPLMODAL | MB_OK);
-        return;
-    }
-
-    if (::SetAbortProc(printDC, AbortProc) == SP_ERROR) {
-        ::MessageBoxW(0, L"Error setting up AbortProc", L"Error", MB_APPLMODAL | MB_OK);
-        return;
-    }
-
-    IWebFramePtr frame = gMiniBrowser->mainFrame();
-    if (!frame)
-        return;
-
-    IWebFramePrivatePtr framePrivate;
-    if (FAILED(frame->QueryInterface(&framePrivate.GetInterfacePtr())))
-        return;
-
-    framePrivate->setInPrintingMode(TRUE, printDC);
-
-    UINT pageCount = 0;
-    framePrivate->getPrintedPageCount(printDC, &pageCount);
-
-    DOCINFO di;
-    initDocStruct(&di, L"WebKit Doc");
-    ::StartDoc(printDC, &di);
-
-    // FIXME: Need CoreGraphics implementation
-    void* graphicsContext = 0;
-    for (size_t page = 1; page <= pageCount; ++page) {
-        ::StartPage(printDC);
-        framePrivate->spoolPages(printDC, page, page, graphicsContext);
-        ::EndPage(printDC);
-    }
-
-    framePrivate->setInPrintingMode(FALSE, printDC);
-
-    ::EndDoc(printDC);
-    ::DeleteDC(printDC);
 }
 
 static void ToggleMenuFlag(HWND hWnd, UINT menuID)
@@ -351,6 +210,44 @@ static void turnOffOtherUserAgents(HMENU menu)
     }
 }
 
+static void setUserAgent(UINT menuID)
+{
+    std::wstring customUserAgent;
+    switch (menuID) {
+    case IDM_UA_DEFAULT:
+        // Set to null user agent
+        break;
+    case IDM_UA_SAFARI_8_0:
+        customUserAgent = L"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10) AppleWebKit/600.1.25 (KHTML, like Gecko) Version/8.0 Safari/600.1.25";
+        break;
+    case IDM_UA_SAFARI_IOS_8_IPHONE:
+        customUserAgent = L"Mozilla/5.0 (iPhone; CPU OS 8_1 like Mac OS X) AppleWebKit/601.1.4 (KHTML, like Gecko) Version/8.0 Mobile/12B403 Safari/600.1.4";
+        break;
+    case IDM_UA_SAFARI_IOS_8_IPAD:
+        customUserAgent = L"Mozilla/5.0 (iPad; CPU OS 8_1 like Mac OS X) AppleWebKit/600.1.4 (KHTML, like Gecko) Version/8.0 Mobile/12B403 Safari/600.1.4";
+        break;
+    case IDM_UA_IE_11:
+        customUserAgent = L"Mozilla/5.0 (Windows NT 6.3; WOW64; Trident/7.0; rv:11.0) like Gecko";
+        break;
+    case IDM_UA_CHROME_MAC:
+        customUserAgent = L"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_3) AppleWebKit/537.31 (KHTML, like Gecko) Chrome/26.0.1410.65 Safari/537.31";
+        break;
+    case IDM_UA_CHROME_WIN:
+        customUserAgent = L"Mozilla/5.0 (Windows NT 6.2; WOW64) AppleWebKit/537.31 (KHTML, like Gecko) Chrome/26.0.1410.64 Safari/537.31";
+        break;
+    case IDM_UA_FIREFOX_MAC:
+        customUserAgent = L"Mozilla/5.0 (Macintosh; Intel Mac OS X 10.8; rv:20.0) Gecko/20100101 Firefox/20.0";
+        break;
+    case IDM_UA_FIREFOX_WIN:
+        customUserAgent = L"Mozilla/5.0 (Windows NT 6.2; WOW64; rv:20.0) Gecko/20100101 Firefox/20.0";
+        break;
+    case IDM_UA_OTHER:
+    default:
+        ASSERT(0); // We should never hit this case
+        return;
+    }
+    gMiniBrowser->setUserAgent(customUserAgent);
+}
 static bool ToggleMenuItem(HWND hWnd, UINT menuID)
 {
     if (!gMiniBrowser)
@@ -368,41 +265,36 @@ static bool ToggleMenuItem(HWND hWnd, UINT menuID)
 
     BOOL newState = !menuItemIsChecked(info);
 
-    if (!gMiniBrowser->standardPreferences() || !gMiniBrowser->privatePreferences())
-        return false;
-
     switch (menuID) {
     case IDM_AVFOUNDATION:
-        gMiniBrowser->standardPreferences()->setAVFoundationEnabled(newState);
+        gMiniBrowser->setAVFoundationEnabled(newState);
         break;
     case IDM_ACC_COMPOSITING:
-        gMiniBrowser->privatePreferences()->setAcceleratedCompositingEnabled(newState);
+        gMiniBrowser->setAcceleratedCompositingEnabled(newState);
         break;
     case IDM_WK_FULLSCREEN:
-        gMiniBrowser->privatePreferences()->setFullScreenEnabled(newState);
+        gMiniBrowser->setFullScreenEnabled(newState);
         break;
     case IDM_COMPOSITING_BORDERS:
-        gMiniBrowser->privatePreferences()->setShowDebugBorders(newState);
-        gMiniBrowser->privatePreferences()->setShowRepaintCounter(newState);
+        gMiniBrowser->setShowCompositingBorders(newState);
         break;
     case IDM_DEBUG_INFO_LAYER:
-        gMiniBrowser->privatePreferences()->setShowTiledScrollingIndicator(newState);
+        gMiniBrowser->setShowTiledScrollingIndicator(newState);
         break;
     case IDM_INVERT_COLORS:
-        gMiniBrowser->privatePreferences()->setShouldInvertColors(newState);
+        gMiniBrowser->setShouldInvertColors(newState);
         break;
     case IDM_DISABLE_IMAGES:
-        gMiniBrowser->standardPreferences()->setLoadsImagesAutomatically(!newState);
+        gMiniBrowser->setLoadsImagesAutomatically(!newState);
         break;
     case IDM_DISABLE_STYLES:
-        gMiniBrowser->privatePreferences()->setAuthorAndUserStylesEnabled(!newState);
+        gMiniBrowser->setAuthorAndUserStylesEnabled(!newState);
         break;
     case IDM_DISABLE_JAVASCRIPT:
-        gMiniBrowser->standardPreferences()->setJavaScriptEnabled(!newState);
+        gMiniBrowser->setJavaScriptEnabled(!newState);
         break;
     case IDM_DISABLE_LOCAL_FILE_RESTRICTIONS:
-        gMiniBrowser->privatePreferences()->setAllowUniversalAccessFromFileURLs(newState);
-        gMiniBrowser->privatePreferences()->setAllowFileAccessFromFileURLs(newState);
+        gMiniBrowser->setLocalFileRestrictionsEnabled(!newState);
         break;
     case IDM_UA_DEFAULT:
     case IDM_UA_SAFARI_8_0:
@@ -413,7 +305,7 @@ static bool ToggleMenuItem(HWND hWnd, UINT menuID)
     case IDM_UA_CHROME_WIN:
     case IDM_UA_FIREFOX_MAC:
     case IDM_UA_FIREFOX_WIN:
-        gMiniBrowser->setUserAgent(menuID);
+        setUserAgent(menuID);
         turnOffOtherUserAgents(menu);
         break;
     case IDM_UA_OTHER:
@@ -431,36 +323,17 @@ static bool ToggleMenuItem(HWND hWnd, UINT menuID)
     return true;
 }
 
-static const int dragBarHeight = 30;
-
-LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
+LRESULT CALLBACK BrowserWindow::WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
-    WNDPROC parentProc = (gMiniBrowser) ? (gMiniBrowser->usesLayeredWebView() ? DefWebKitProc : DefWindowProc) : DefWindowProc;
+    WNDPROC parentProc = DefWindowProc;
 
     switch (message) {
-    case WM_NCHITTEST:
-        if (gMiniBrowser && gMiniBrowser->usesLayeredWebView()) {
-            RECT window;
-            ::GetWindowRect(hWnd, &window);
-            // For testing our transparent window, we need a region to use as a handle for
-            // dragging. The right way to do this would be to query the web view to see what's
-            // under the mouse. However, for testing purposes we just use an arbitrary
-            // 30 logical pixel band at the top of the view as an arbitrary gripping location.
-            //
-            // When we are within this bad, return HT_CAPTION to tell Windows we want to
-            // treat this region as if it were the title bar on a normal window.
-            int y = HIWORD(lParam);
-            float scaledDragBarHeightFactor = dragBarHeight * gMiniBrowser->deviceScaleFactor();
-            if ((y > window.top) && (y < window.top + scaledDragBarHeightFactor))
-                return HTCAPTION;
-        }
-        return CallWindowProc(parentProc, hWnd, message, wParam, lParam);
     case WM_COMMAND: {
         int wmId = LOWORD(wParam);
         int wmEvent = HIWORD(wParam);
         if (wmId >= IDM_HISTORY_LINK0 && wmId <= IDM_HISTORY_LINK9) {
             if (gMiniBrowser)
-                gMiniBrowser->navigateToHistory(hWnd, wmId);
+                gMiniBrowser->navigateToHistory(wmId - IDM_HISTORY_LINK0);
             break;
         }
         // Parse the menu selections:
@@ -472,7 +345,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             DestroyWindow(hWnd);
             break;
         case IDM_PRINT:
-            PrintView(hWnd, message, wParam, lParam);
+            if (gMiniBrowser)
+                gMiniBrowser->print();
             break;
         case IDM_WEB_INSPECTOR:
             if (gMiniBrowser)
@@ -487,7 +361,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         case IDM_HISTORY_BACKWARD:
         case IDM_HISTORY_FORWARD:
             if (gMiniBrowser)
-                gMiniBrowser->navigateForwardOrBackward(hWnd, wmId);
+                gMiniBrowser->navigateForwardOrBackward(wmId == IDM_HISTORY_BACKWARD);
             break;
         case IDM_UA_OTHER:
             if (wmEvent)
@@ -524,14 +398,14 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         PostQuitMessage(0);
         break;
     case WM_SIZE:
-        if (!gMiniBrowser || !gMiniBrowser->hasWebView() || gMiniBrowser->usesLayeredWebView())
+        if (!gBrowserWindow)
             return CallWindowProc(parentProc, hWnd, message, wParam, lParam);
 
-        resizeSubViews();
+        gBrowserWindow->resizeSubViews();
         break;
     case WM_DPICHANGED:
-        if (gMiniBrowser)
-            gMiniBrowser->updateDeviceScaleFactor();
+        if (gBrowserWindow)
+            gBrowserWindow->updateDeviceScaleFactor();
         return CallWindowProc(parentProc, hWnd, message, wParam, lParam);
     default:
         return CallWindowProc(parentProc, hWnd, message, wParam, lParam);
@@ -620,7 +494,8 @@ INT_PTR CALLBACK Caches(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
         return (INT_PTR)TRUE;
 
     case WM_PAINT:
-        updateStatistics(hDlg);
+        if (gMiniBrowser)
+            gMiniBrowser->updateStatistics(hDlg);
         break;
     }
 
@@ -633,11 +508,11 @@ INT_PTR CALLBACK CustomUserAgent(HWND hDlg, UINT message, WPARAM wParam, LPARAM 
     switch (message) {
     case WM_INITDIALOG: {
         HWND edit = ::GetDlgItem(hDlg, IDC_USER_AGENT_INPUT);
-        _bstr_t userAgent;
+        std::wstring userAgent;
         if (gMiniBrowser)
             userAgent = gMiniBrowser->userAgent();
 
-        ::SetWindowText(edit, static_cast<LPCTSTR>(userAgent));
+        ::SetWindowText(edit, userAgent.c_str());
         return (INT_PTR)TRUE;
     }
 
@@ -649,11 +524,9 @@ INT_PTR CALLBACK CustomUserAgent(HWND hDlg, UINT message, WPARAM wParam, LPARAM 
             int strLen = ::GetWindowText(edit, buffer, 1024);
             buffer[strLen] = 0;
 
-            _bstr_t bstr(buffer);
-            if (bstr.length()) {
+            std::wstring bstr(buffer);
+            if (bstr.length())
                 gMiniBrowser->setUserAgent(bstr);
-                ::PostMessage(hMainWnd, static_cast<UINT>(WM_COMMAND), MAKELPARAM(IDM_UA_OTHER, 1), 0);
-            }
         }
 
         if (LOWORD(wParam) == IDOK || LOWORD(wParam) == IDCANCEL) {
@@ -665,226 +538,20 @@ INT_PTR CALLBACK CustomUserAgent(HWND hDlg, UINT message, WPARAM wParam, LPARAM 
     return (INT_PTR)FALSE;
 }
 
-HRESULT DisplayAuthDialog(std::wstring& username, std::wstring& password)
-{
-    auto result = DialogBox(hInst, MAKEINTRESOURCE(IDD_AUTH), hMainWnd, AuthDialogProc);
-    if (!result)
-        return E_FAIL;
-
-    auto pair = reinterpret_cast<std::pair<std::wstring, std::wstring>*>(result);
-    username = pair->first;
-    password = pair->second;
-    delete pair;
-
-    return S_OK;
-}
-
-INT_PTR CALLBACK AuthDialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
-{
-    switch (message) {
-    case WM_INITDIALOG: {
-        HWND edit = ::GetDlgItem(hDlg, IDC_AUTH_USER);
-        ::SetWindowText(edit, static_cast<LPCTSTR>(L""));
-        
-        edit = ::GetDlgItem(hDlg, IDC_AUTH_PASSWORD);
-        ::SetWindowText(edit, static_cast<LPCTSTR>(L""));
-        return (INT_PTR)TRUE;
-    }
-
-    case WM_COMMAND:
-        if (LOWORD(wParam) == IDOK || LOWORD(wParam) == IDCANCEL) {
-            INT_PTR result { };
-
-            if (LOWORD(wParam) == IDOK) {
-                TCHAR user[256];
-                int strLen = ::GetWindowText(::GetDlgItem(hDlg, IDC_AUTH_USER), user, 256);
-                user[strLen] = 0;
-
-                TCHAR pass[256];
-                strLen = ::GetWindowText(::GetDlgItem(hDlg, IDC_AUTH_PASSWORD), pass, 256);
-                pass[strLen] = 0;
-
-                result = reinterpret_cast<INT_PTR>(new std::pair<std::wstring, std::wstring>(user, pass));
-            }
-
-            ::EndDialog(hDlg, result);
-            return (INT_PTR)TRUE;
-        }
-        break;
-    }
-    return (INT_PTR)FALSE;
-}
-
-static void loadURL(BSTR passedURL)
+void loadURL(BSTR passedURL)
 {
     if (FAILED(gMiniBrowser->loadURL(passedURL)))
         return;
 
-    SetFocus(gViewWindow);
+    SetFocus(gMiniBrowser->hwnd());
 }
 
-static void setWindowText(HWND dialog, UINT field, _bstr_t value)
-{
-    ::SetDlgItemText(dialog, field, value);
-}
-
-static void setWindowText(HWND dialog, UINT field, UINT value)
-{
-    String valueStr = WTF::String::number(value);
-
-    setWindowText(dialog, field, _bstr_t(valueStr.utf8().data()));
-}
-
-typedef _com_ptr_t<_com_IIID<IPropertyBag, &__uuidof(IPropertyBag)>> IPropertyBagPtr;
-
-static void setWindowText(HWND dialog, UINT field, IPropertyBagPtr statistics, const _bstr_t& key)
-{
-    _variant_t var;
-    V_VT(&var) = VT_UI8;
-    if (FAILED(statistics->Read(key, &var.GetVARIANT(), nullptr)))
-        return;
-
-    unsigned long long value = V_UI8(&var);
-    String valueStr = WTF::String::number(value);
-
-    setWindowText(dialog, field, _bstr_t(valueStr.utf8().data()));
-}
-
-static void setWindowText(HWND dialog, UINT field, CFDictionaryRef dictionary, CFStringRef key, UINT& total)
-{
-    CFNumberRef countNum = static_cast<CFNumberRef>(CFDictionaryGetValue(dictionary, key));
-    if (!countNum)
-        return;
-
-    int count = 0;
-    CFNumberGetValue(countNum, kCFNumberIntType, &count);
-
-    setWindowText(dialog, field, static_cast<UINT>(count));
-    total += count;
-}
-
-static void updateStatistics(HWND dialog)
-{
-    if (!gMiniBrowser)
-        return;
-
-    IWebCoreStatisticsPtr webCoreStatistics = gMiniBrowser->statistics();
-    if (!webCoreStatistics)
-        return;
-
-    IPropertyBagPtr statistics;
-    HRESULT hr = webCoreStatistics->memoryStatistics(&statistics.GetInterfacePtr());
-    if (FAILED(hr))
-        return;
-
-    // FastMalloc.
-    setWindowText(dialog, IDC_RESERVED_VM, statistics, "FastMallocReservedVMBytes");
-    setWindowText(dialog, IDC_COMMITTED_VM, statistics, "FastMallocCommittedVMBytes");
-    setWindowText(dialog, IDC_FREE_LIST_BYTES, statistics, "FastMallocFreeListBytes");
-
-    // WebCore Cache.
-#if USE(CF)
-    IWebCachePtr webCache = gMiniBrowser->webCache();
-
-    int dictCount = 6;
-    IPropertyBag* cacheDict[6] = { 0 };
-    if (FAILED(webCache->statistics(&dictCount, cacheDict)))
-        return;
-
-    COMPtr<CFDictionaryPropertyBag> counts, sizes, liveSizes, decodedSizes, purgableSizes;
-    counts.adoptRef(reinterpret_cast<CFDictionaryPropertyBag*>(cacheDict[0]));
-    sizes.adoptRef(reinterpret_cast<CFDictionaryPropertyBag*>(cacheDict[1]));
-    liveSizes.adoptRef(reinterpret_cast<CFDictionaryPropertyBag*>(cacheDict[2]));
-    decodedSizes.adoptRef(reinterpret_cast<CFDictionaryPropertyBag*>(cacheDict[3]));
-    purgableSizes.adoptRef(reinterpret_cast<CFDictionaryPropertyBag*>(cacheDict[4]));
-
-    static CFStringRef imagesKey = CFSTR("images");
-    static CFStringRef stylesheetsKey = CFSTR("style sheets");
-    static CFStringRef xslKey = CFSTR("xsl");
-    static CFStringRef scriptsKey = CFSTR("scripts");
-
-    if (counts) {
-        UINT totalObjects = 0;
-        setWindowText(dialog, IDC_IMAGES_OBJECT_COUNT, counts->dictionary(), imagesKey, totalObjects);
-        setWindowText(dialog, IDC_CSS_OBJECT_COUNT, counts->dictionary(), stylesheetsKey, totalObjects);
-        setWindowText(dialog, IDC_XSL_OBJECT_COUNT, counts->dictionary(), xslKey, totalObjects);
-        setWindowText(dialog, IDC_JSC_OBJECT_COUNT, counts->dictionary(), scriptsKey, totalObjects);
-        setWindowText(dialog, IDC_TOTAL_OBJECT_COUNT, totalObjects);
-    }
-
-    if (sizes) {
-        UINT totalBytes = 0;
-        setWindowText(dialog, IDC_IMAGES_BYTES, sizes->dictionary(), imagesKey, totalBytes);
-        setWindowText(dialog, IDC_CSS_BYTES, sizes->dictionary(), stylesheetsKey, totalBytes);
-        setWindowText(dialog, IDC_XSL_BYTES, sizes->dictionary(), xslKey, totalBytes);
-        setWindowText(dialog, IDC_JSC_BYTES, sizes->dictionary(), scriptsKey, totalBytes);
-        setWindowText(dialog, IDC_TOTAL_BYTES, totalBytes);
-    }
-
-    if (liveSizes) {
-        UINT totalLiveBytes = 0;
-        setWindowText(dialog, IDC_IMAGES_LIVE_COUNT, liveSizes->dictionary(), imagesKey, totalLiveBytes);
-        setWindowText(dialog, IDC_CSS_LIVE_COUNT, liveSizes->dictionary(), stylesheetsKey, totalLiveBytes);
-        setWindowText(dialog, IDC_XSL_LIVE_COUNT, liveSizes->dictionary(), xslKey, totalLiveBytes);
-        setWindowText(dialog, IDC_JSC_LIVE_COUNT, liveSizes->dictionary(), scriptsKey, totalLiveBytes);
-        setWindowText(dialog, IDC_TOTAL_LIVE_COUNT, totalLiveBytes);
-    }
-
-    if (decodedSizes) {
-        UINT totalDecoded = 0;
-        setWindowText(dialog, IDC_IMAGES_DECODED_COUNT, decodedSizes->dictionary(), imagesKey, totalDecoded);
-        setWindowText(dialog, IDC_CSS_DECODED_COUNT, decodedSizes->dictionary(), stylesheetsKey, totalDecoded);
-        setWindowText(dialog, IDC_XSL_DECODED_COUNT, decodedSizes->dictionary(), xslKey, totalDecoded);
-        setWindowText(dialog, IDC_JSC_DECODED_COUNT, decodedSizes->dictionary(), scriptsKey, totalDecoded);
-        setWindowText(dialog, IDC_TOTAL_DECODED, totalDecoded);
-    }
-
-    if (purgableSizes) {
-        UINT totalPurgable = 0;
-        setWindowText(dialog, IDC_IMAGES_PURGEABLE_COUNT, purgableSizes->dictionary(), imagesKey, totalPurgable);
-        setWindowText(dialog, IDC_CSS_PURGEABLE_COUNT, purgableSizes->dictionary(), stylesheetsKey, totalPurgable);
-        setWindowText(dialog, IDC_XSL_PURGEABLE_COUNT, purgableSizes->dictionary(), xslKey, totalPurgable);
-        setWindowText(dialog, IDC_JSC_PURGEABLE_COUNT, purgableSizes->dictionary(), scriptsKey, totalPurgable);
-        setWindowText(dialog, IDC_TOTAL_PURGEABLE, totalPurgable);
-    }
-#endif
-
-    // JavaScript Heap.
-    setWindowText(dialog, IDC_JSC_HEAP_SIZE, statistics, "JavaScriptHeapSize");
-    setWindowText(dialog, IDC_JSC_HEAP_FREE, statistics, "JavaScriptFreeSize");
-
-    UINT count;
-    if (SUCCEEDED(webCoreStatistics->javaScriptObjectsCount(&count)))
-        setWindowText(dialog, IDC_TOTAL_JSC_HEAP_OBJECTS, count);
-    if (SUCCEEDED(webCoreStatistics->javaScriptGlobalObjectsCount(&count)))
-        setWindowText(dialog, IDC_GLOBAL_JSC_HEAP_OBJECTS, count);
-    if (SUCCEEDED(webCoreStatistics->javaScriptProtectedObjectsCount(&count)))
-        setWindowText(dialog, IDC_PROTECTED_JSC_HEAP_OBJECTS, count);
-
-    // Font and Glyph Caches.
-    if (SUCCEEDED(webCoreStatistics->cachedFontDataCount(&count)))
-        setWindowText(dialog, IDC_TOTAL_FONT_OBJECTS, count);
-    if (SUCCEEDED(webCoreStatistics->cachedFontDataInactiveCount(&count)))
-        setWindowText(dialog, IDC_INACTIVE_FONT_OBJECTS, count);
-    if (SUCCEEDED(webCoreStatistics->glyphPageCount(&count)))
-        setWindowText(dialog, IDC_GLYPH_PAGES, count);
-
-    // Site Icon Database.
-    if (SUCCEEDED(webCoreStatistics->iconPageURLMappingCount(&count)))
-        setWindowText(dialog, IDC_PAGE_URL_MAPPINGS, count);
-    if (SUCCEEDED(webCoreStatistics->iconRetainedPageURLCount(&count)))
-        setWindowText(dialog, IDC_RETAINED_PAGE_URLS, count);
-    if (SUCCEEDED(webCoreStatistics->iconRecordCount(&count)))
-        setWindowText(dialog, IDC_SITE_ICON_RECORDS, count);
-    if (SUCCEEDED(webCoreStatistics->iconsWithDataCount(&count)))
-        setWindowText(dialog, IDC_SITE_ICONS_WITH_DATA, count);
-}
-
-static void parseCommandLine(bool& usesLayeredWebView, bool& useFullDesktop, bool& pageLoadTesting, _bstr_t& requestedURL)
+void parseCommandLine(bool& usesLayeredWebView, bool& useFullDesktop, bool& pageLoadTesting, _bstr_t& requestedURL, bool& useWK2)
 {
     usesLayeredWebView = false;
     useFullDesktop = false;
     pageLoadTesting = false;
+    useWK2 = false;
 
     int argc = 0;
     WCHAR** argv = CommandLineToArgvW(GetCommandLineW(), &argc);
@@ -897,12 +564,9 @@ static void parseCommandLine(bool& usesLayeredWebView, bool& useFullDesktop, boo
             pageLoadTesting = true;
         else if (!wcsicmp(argv[i], L"--highDPI"))
             continue; // ignore
+        else if (!wcsicmp(argv[i], L"--wk2"))
+            useWK2 = true;
         else if (!requestedURL)
             requestedURL = argv[i];
     }
-}
-
-extern "C" __declspec(dllexport) int WINAPI dllLauncherEntryPoint(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpstrCmdLine, int nCmdShow)
-{
-    return wWinMain(hInstance, hPrevInstance, lpstrCmdLine, nCmdShow);
 }
