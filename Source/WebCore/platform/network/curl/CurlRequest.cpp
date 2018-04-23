@@ -130,8 +130,7 @@ void CurlRequest::cancel()
 
 void CurlRequest::suspend()
 {
-    ASSERT(isMainThread());
-
+    m_shouldSuspend = true;
     setRequestPaused(true);
 }
 
@@ -139,6 +138,7 @@ void CurlRequest::resume()
 {
     ASSERT(isMainThread());
 
+    m_shouldSuspend = false;
     setRequestPaused(false);
 }
 

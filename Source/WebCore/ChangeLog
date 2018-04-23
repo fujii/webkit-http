@@ -1,3 +1,16 @@
+2018-04-23  Basuke Suzuki  <Basuke.Suzuki@sony.com>
+
+        [Curl] Bug fix on suspend/resume behavior.
+        https://bugs.webkit.org/show_bug.cgi?id=183089
+
+        The flag was not set correctly. Also wrong assertion was set.
+
+        Reviewed by NOBODY (OOPS!).
+
+        * platform/network/curl/CurlRequest.cpp:
+        (WebCore::CurlRequest::suspend):
+        (WebCore::CurlRequest::resume):
+
 2018-04-24  Ryosuke Niwa  <rniwa@webkit.org>
 
         Release assert in ScriptController::canExecuteScripts via CachedSVGFont::ensureCustomFontData during
