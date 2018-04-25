@@ -1,3 +1,21 @@
+2018-04-24  Fujii Hironori  <Hironori.Fujii@sony.com>
+
+        [Win][WebKit] Use WEBKIT_CREATE_FORWARDING_HEADERS instead of WEBKIT_MAKE_FORWARDING_HEADERS
+        https://bugs.webkit.org/show_bug.cgi?id=184412
+
+        Reviewed by NOBODY (OOPS!).
+
+        Forwarding headers are duplicately included in WebKit on Windows
+        because forwarding headers are created by simple copying headers
+        and substantial parts of WebKit are using #include <WebKit/Foo.h>
+        instead of #include "Foo.h" inside WebKit.
+
+        WEBKIT_MAKE_FORWARDING_HEADERS simply copies headers.
+        WEBKIT_CREATE_FORWARDING_HEADERS creates forwarding headers.
+
+        * Source/cmake/WebKitMacros.cmake (WEBKIT_CREATE_FORWARDING_HEADERS):
+        Removed the NOT WIN32 condition to make it usable for Windows.
+
 2018-04-24  Leo Balter  <leonardo.balter@gmail.com>
 
         Land test262 test results associated with Test262 runner
