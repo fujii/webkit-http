@@ -65,7 +65,8 @@ bool WindowsSystemProxy::getSystemHttpProxy(char* buffer, int bufferLen, int* po
 
 void WindowsSystemProxy::setCurlHttpProxy(char* proxy, int port)
 {
-    WebCore::CurlContext::singleton().setProxyInfo(proxy, port);
+    WebCore::CurlProxySettings settings(WebCore::URL(WebCore::ParsedURLString, String::format("http://%s:%d/", proxy, port)), String());
+    WebCore::CurlContext::singleton().setProxySettings(settings);
 }
 
 void WindowsSystemProxy::setCurlHttpProxy()
